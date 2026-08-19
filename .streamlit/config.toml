@@ -1,0 +1,15 @@
+[theme]
+# Cor principal usada nos botões, sliders e links (Verde E-dinheiro)
+primaryColor = "#1F8931"
+
+# Cor de fundo da área principal da página (Cinza bem claro)
+backgroundColor = "#F4F6F8"
+
+# Cor de fundo da barra lateral e de outros elementos de sobreposição (Branco)
+secondaryBackgroundColor = "#FFFFFF"
+
+# Cor do texto em toda a aplicação (Cinza escuro para facilitar a leitura)
+textColor = "#5e5873"
+
+# Fonte principal da aplicação
+font = "sans serif"
