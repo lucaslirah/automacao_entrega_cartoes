@@ -16,6 +16,46 @@ st.set_page_config(
     layout="wide"
 )
 
+def formatar_cpf(val):
+    """
+    Formatador de CPF:
+    - Retorna vazio se o valor for nulo/vazio.
+    - Remove caracteres não numéricos.
+    - Preenche com zeros à esquerda até atingir 11 dígitos.
+    """
+    if pd.isna(val) or val is None:
+        return ""
+    val_str = str(val).strip()
+    if val_str == "" or val_str.lower() in ["nan", "none"]:
+        return ""
+    # Se for float do pandas (ex: 9053546472.0), remove o '.0'
+    if val_str.endswith(".0"):
+        val_str = val_str[:-2]
+    # Mantém apenas os dígitos numéricos
+    digitos = "".join(filter(str.isdigit, val_str))
+    if not digitos:
+        return ""
+    # Preenche com zeros à esquerda até ter 11 dígitos
+    return digitos.zfill(11)
+
+
+def limpar_valor_texto(val):
+    """
+    Limpa valores textuais lidos do Excel:
+    - Retorna vazio se for nulo, vazio ou 'nan'/'none'.
+    - Remove o sufixo '.0' se for importado como float pelo pandas.
+    """
+    if pd.isna(val) or val is None:
+        return ""
+    val_str = str(val).strip()
+    if val_str == "" or val_str.lower() in ["nan", "none"]:
+        return ""
+    # Se for float do pandas (ex: 12345.0), remove o '.0'
+    if val_str.endswith(".0"):
+        val_str = val_str[:-2]
+    return val_str
+
+
 # ---------------------------------------------------------
 # FUNÇÃO PRINCIPAL DE PROCESSAMENTO DOS DADOS
 # ---------------------------------------------------------
@@ -24,8 +64,8 @@ def processar_planilha(arquivo_carregado, limite_dia=180, total_guiches=6):
     Processa o arquivo Excel carregado, aplica o algoritmo de dias/guichês
     e gera a planilha final formatada em memória.
     """
-    # 1. Leitura da aba DADOS
-    df_dados = pd.read_excel(arquivo_carregado, sheet_name="DADOS")
+    # 1. Leitura da aba DADOS (lendo todas as colunas como string para preservar zeros à esquerda)
+    df_dados = pd.read_excel(arquivo_carregado, sheet_name="DADOS", dtype=str)
     
     # Normalização dos cabeçalhos
     df_dados.columns = [str(col).strip() for col in df_dados.columns]
@@ -42,23 +82,43 @@ def processar_planilha(arquivo_carregado, limite_dia=180, total_guiches=6):
 
     df_dados = df_dados.rename(columns={coluna_nome: "NOME"})
 
-    # Identificação flexível de outras colunas
+    # Identificação flexível da coluna de CPF (obrigatória)
+    coluna_cpf = None
+    for col in df_dados.columns:
+        if "CPF" in col.upper():
+            coluna_cpf = col
+            break
+
+    if not coluna_cpf:
+        raise ValueError("A coluna de CPF não foi encontrada na aba DADOS.")
+
+    df_dados = df_dados.rename(columns={coluna_cpf: "CPF"})
+
+    # Identificação flexível de outras colunas (opcionais)
     for col in df_dados.columns:
         col_upper = col.upper()
-        if "CPF" in col_upper and col != "CPF":
-            df_dados = df_dados.rename(columns={col: "CPF"})
-        elif "CONTA" in col_upper and col != "CONTA":
+        if col == "CPF":
+            continue
+        if "CONTA" in col_upper and col != "CONTA":
             df_dados = df_dados.rename(columns={col: "CONTA"})
         elif "ABREVIADO" in col_upper and col != "NOME_ABREVIADO":
             df_dados = df_dados.rename(columns={col: "NOME_ABREVIADO"})
 
-    for col_opcional in ["CPF", "CONTA", "NOME_ABREVIADO"]:
+    for col_opcional in ["CONTA", "NOME_ABREVIADO"]:
         if col_opcional not in df_dados.columns:
             df_dados[col_opcional] = ""
 
-    # Limpeza e remoção de registros vazios
-    df_dados["NOME"] = df_dados["NOME"].astype(str).str.strip()
+    # Limpeza e remoção de registros vazios e nan
+    df_dados["NOME"] = df_dados["NOME"].apply(limpar_valor_texto)
     df_dados = df_dados[df_dados["NOME"] != ""].copy()
+
+    # Limpeza das demais colunas de texto para evitar escrita de "nan" e manter formatação original
+    df_dados["CONTA"] = df_dados["CONTA"].apply(limpar_valor_texto)
+    df_dados["NOME_ABREVIADO"] = df_dados["NOME_ABREVIADO"].apply(limpar_valor_texto)
+    df_dados["CPF"] = df_dados["CPF"].apply(limpar_valor_texto)
+
+    # Formatação do CPF
+    df_dados["CPF_FORMATADO"] = df_dados["CPF"].apply(formatar_cpf)
 
     # 2. Ordenação A -> Z e definição da ORDEM original
     df_dados = df_dados.sort_values(by="NOME").reset_index(drop=True)
@@ -196,7 +256,7 @@ def processar_planilha(arquivo_carregado, limite_dia=180, total_guiches=6):
         del wb["DADOS"]
     ws_dados = wb.create_sheet(title="DADOS", index=1)
 
-    colunas_dados_finais = ["ORDEM", "CONTA", "NOME", "NOME_ABREVIADO", "CPF", "DIA"]
+    colunas_dados_finais = ["ORDEM", "CONTA", "NOME", "NOME_ABREVIADO", "CPF", "CPF FORMATADO", "DIA"]
     for c_idx, col_nome in enumerate(colunas_dados_finais, start=1):
         cel = ws_dados.cell(row=1, column=c_idx, value=col_nome)
         cel.font = fonte_cabecalho
@@ -213,12 +273,15 @@ def processar_planilha(arquivo_carregado, limite_dia=180, total_guiches=6):
             row["NOME"],
             str(row.get("NOME_ABREVIADO", "")),
             str(row.get("CPF", "")),
+            row.get("CPF_FORMATADO", ""),
             row["DIA"]
         ]
         for c_idx, val in enumerate(valores, start=1):
             cel = ws_dados.cell(row=linha_num, column=c_idx, value=val)
             cel.font = fonte_corpo
             cel.border = borda_completa
+            if colunas_dados_finais[c_idx - 1] in ["CONTA", "CPF", "CPF FORMATADO"]:
+                cel.number_format = '@'
             if c_idx in [3, 4]:
                 cel.alignment = Alignment(horizontal="left", vertical="center")
             else:
@@ -229,7 +292,8 @@ def processar_planilha(arquivo_carregado, limite_dia=180, total_guiches=6):
     ws_dados.column_dimensions["C"].width = 38
     ws_dados.column_dimensions["D"].width = 28
     ws_dados.column_dimensions["E"].width = 18
-    ws_dados.column_dimensions["F"].width = 8
+    ws_dados.column_dimensions["F"].width = 18
+    ws_dados.column_dimensions["G"].width = 8
 
     # --- ABAS POR GUICHÊ (Pilha Reversa) ---
     for g in range(1, total_guiches + 1):
@@ -251,16 +315,18 @@ def processar_planilha(arquivo_carregado, limite_dia=180, total_guiches=6):
         for r_idx, row in df_guiche.iterrows():
             linha_num = r_idx + 2
             valores = [
-                row["ORDEM"],
+                len(df_guiche) - r_idx,
                 row["DIA"],
                 row["NOME"],
-                str(row.get("CPF", "")),
+                row.get("CPF_FORMATADO", ""),
                 str(row.get("CONTA", ""))
             ]
             for c_idx, val in enumerate(valores, start=1):
                 cel = ws_g.cell(row=linha_num, column=c_idx, value=val)
                 cel.font = fonte_corpo
                 cel.border = borda_completa
+                if colunas_guiche[c_idx - 1] in ["CONTA", "CPF"]:
+                    cel.number_format = '@'
                 if c_idx == 3:
                     cel.alignment = Alignment(horizontal="left", vertical="center")
                 else:
