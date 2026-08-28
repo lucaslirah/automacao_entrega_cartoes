@@ -63,9 +63,30 @@ for col_opcional in ["CPF", "CONTA", "NOME_ABREVIADO"]:
     if col_opcional not in df_dados.columns:
         df_dados[col_opcional] = ""
 
+def gerar_nome_abreviado(val_nome, val_abreviado=""):
+    val_abrev_limpo = str(val_abreviado).strip() if val_abreviado and not str(val_abreviado).lower() in ["nan", "none"] else ""
+    if val_abrev_limpo:
+        return val_abrev_limpo
+    
+    val_nome_limpo = str(val_nome).strip() if val_nome and not str(val_nome).lower() in ["nan", "none"] else ""
+    if not val_nome_limpo:
+        return ""
+    
+    partes = val_nome_limpo.split()
+    if not partes:
+        return ""
+    if len(partes) == 1:
+        return partes[0]
+    return f"{partes[0]} {partes[-1]}"
+
 # Limpeza e remoção de registros vazios
 df_dados["NOME"] = df_dados["NOME"].astype(str).str.strip()
 df_dados = df_dados[df_dados["NOME"] != ""].copy()
+
+# Geração do Nome Abreviado (Nome e último sobrenome)
+df_dados["NOME_ABREVIADO"] = df_dados.apply(
+    lambda r: gerar_nome_abreviado(r["NOME"], r.get("NOME_ABREVIADO", "")), axis=1
+)
 
 # ---------------------------------------------------------
 # 3. ORDENAÇÃO ALFABÉTICA (A -> Z) E DEFINIÇÃO DA ORDEM
@@ -272,7 +293,7 @@ for g in range(1, TOTAL_GUICHES + 1):
     # Filtra as contas do guichê e inverte a ordem (pilha reversa)
     df_guiche = df_dados[df_dados["GUICHE"] == g].iloc[::-1].reset_index(drop=True)
 
-    colunas_guiche = ["ORDEM", "DIA", "NOME", "CPF", "CONTA"]
+    colunas_guiche = ["ORDEM", "DIA", "NOME", "NOME_ABREVIADO", "CPF", "CONTA"]
     for c_idx, col_nome in enumerate(colunas_guiche, start=1):
         cel = ws_g.cell(row=1, column=c_idx, value=col_nome)
         cel.font = fonte_cabecalho
@@ -286,6 +307,7 @@ for g in range(1, TOTAL_GUICHES + 1):
             row["ORDEM"],
             row["DIA"],
             row["NOME"],
+            str(row.get("NOME_ABREVIADO", "")),
             str(row.get("CPF", "")),
             str(row.get("CONTA", ""))
         ]
@@ -293,7 +315,7 @@ for g in range(1, TOTAL_GUICHES + 1):
             cel = ws_g.cell(row=linha_num, column=c_idx, value=val)
             cel.font = fonte_corpo
             cel.border = borda_completa
-            if c_idx == 3:
+            if c_idx in [3, 4]:
                 cel.alignment = Alignment(horizontal="left", vertical="center")
             else:
                 cel.alignment = alinhamento_centro
@@ -301,8 +323,9 @@ for g in range(1, TOTAL_GUICHES + 1):
     ws_g.column_dimensions["A"].width = 10
     ws_g.column_dimensions["B"].width = 8
     ws_g.column_dimensions["C"].width = 38
-    ws_g.column_dimensions["D"].width = 18
+    ws_g.column_dimensions["D"].width = 28
     ws_g.column_dimensions["E"].width = 18
+    ws_g.column_dimensions["F"].width = 18
 
 # Salva arquivo final
 wb.save(caminho_arquivo)

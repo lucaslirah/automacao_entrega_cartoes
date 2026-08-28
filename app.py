@@ -56,6 +56,28 @@ def limpar_valor_texto(val):
     return val_str
 
 
+def gerar_nome_abreviado(val_nome, val_abreviado=""):
+    """
+    Gera o nome abreviado (primeiro nome e último sobrenome):
+    - Se val_abreviado já tiver um valor válido, mantém.
+    - Caso contrário, extrai o primeiro nome e o último sobrenome de val_nome.
+    """
+    val_abrev_limpo = limpar_valor_texto(val_abreviado)
+    if val_abrev_limpo:
+        return val_abrev_limpo
+    
+    val_nome_limpo = limpar_valor_texto(val_nome)
+    if not val_nome_limpo:
+        return ""
+    
+    partes = val_nome_limpo.split()
+    if not partes:
+        return ""
+    if len(partes) == 1:
+        return partes[0]
+    return f"{partes[0]} {partes[-1]}" 
+
+
 # ---------------------------------------------------------
 # FUNÇÃO PRINCIPAL DE PROCESSAMENTO DOS DADOS
 # ---------------------------------------------------------
@@ -116,6 +138,11 @@ def processar_planilha(arquivo_carregado, limite_dia=180, total_guiches=6):
     df_dados["CONTA"] = df_dados["CONTA"].apply(limpar_valor_texto)
     df_dados["NOME_ABREVIADO"] = df_dados["NOME_ABREVIADO"].apply(limpar_valor_texto)
     df_dados["CPF"] = df_dados["CPF"].apply(limpar_valor_texto)
+
+    # Geração do Nome Abreviado (Nome e último sobrenome)
+    df_dados["NOME_ABREVIADO"] = df_dados.apply(
+        lambda r: gerar_nome_abreviado(r["NOME"], r["NOME_ABREVIADO"]), axis=1
+    )
 
     # Formatação do CPF
     df_dados["CPF_FORMATADO"] = df_dados["CPF"].apply(formatar_cpf)
@@ -304,7 +331,7 @@ def processar_planilha(arquivo_carregado, limite_dia=180, total_guiches=6):
         ws_g = wb.create_sheet(title=nome_aba)
         df_guiche = df_dados[df_dados["GUICHE"] == g].iloc[::-1].reset_index(drop=True)
 
-        colunas_guiche = ["ORDEM", "DIA", "NOME", "CPF", "CONTA"]
+        colunas_guiche = ["ORDEM", "DIA", "NOME", "NOME_ABREVIADO", "CPF", "CONTA"]
         for c_idx, col_nome in enumerate(colunas_guiche, start=1):
             cel = ws_g.cell(row=1, column=c_idx, value=col_nome)
             cel.font = fonte_cabecalho
@@ -318,6 +345,7 @@ def processar_planilha(arquivo_carregado, limite_dia=180, total_guiches=6):
                 len(df_guiche) - r_idx,
                 row["DIA"],
                 row["NOME"],
+                str(row.get("NOME_ABREVIADO", "")),
                 row.get("CPF_FORMATADO", ""),
                 str(row.get("CONTA", ""))
             ]
@@ -327,7 +355,7 @@ def processar_planilha(arquivo_carregado, limite_dia=180, total_guiches=6):
                 cel.border = borda_completa
                 if colunas_guiche[c_idx - 1] in ["CONTA", "CPF"]:
                     cel.number_format = '@'
-                if c_idx == 3:
+                if c_idx in [3, 4]:
                     cel.alignment = Alignment(horizontal="left", vertical="center")
                 else:
                     cel.alignment = alinhamento_centro
@@ -335,8 +363,9 @@ def processar_planilha(arquivo_carregado, limite_dia=180, total_guiches=6):
         ws_g.column_dimensions["A"].width = 10
         ws_g.column_dimensions["B"].width = 8
         ws_g.column_dimensions["C"].width = 38
-        ws_g.column_dimensions["D"].width = 18
+        ws_g.column_dimensions["D"].width = 28
         ws_g.column_dimensions["E"].width = 18
+        ws_g.column_dimensions["F"].width = 18
 
     # Salva o resultado em buffer binário
     buffer_saida = io.BytesIO()
